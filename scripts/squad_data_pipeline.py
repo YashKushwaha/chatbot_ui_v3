@@ -1,11 +1,33 @@
 from pathlib import Path
 import os
 from datasets import load_dataset
-from pymongo import MongoClient
+from pymongo import MongoClient, ASCENDING, UpdateOne
 import hashlib
+import chromadb
+from src.embedding_client import RemoteEmbedding
 
 def get_context_hash(context: str) -> str:
     return hashlib.md5(context.encode('utf-8')).hexdigest()
+
+def get_batches_from_collection(collection, batch_size=100):
+    """
+    Generator to yield batches of documents from a MongoDB collection.
+
+    :param collection: pymongo collection object
+    :param batch_size: Number of documents per batch
+    """
+    cursor = collection.find().batch_size(batch_size)
+    batch = []
+    
+    for doc in cursor:
+        batch.append(doc)
+        if len(batch) == batch_size:
+            yield batch
+            batch = []
+    
+    if batch:
+        yield batch  # Yield any remaining documents
+
 
 def batch_uploader(iterator, context_collection, question_collection, batch_size=100):
     context_batch = []
@@ -35,12 +57,13 @@ class SQuADIterator:
         title = record['title']
         context = record['context']
         question = record['question']
+
         answer = '|'.join({i for i in record['answers'].get('text', [])})
         
         context_hash = get_context_hash(context)
         return {
             "context_record": dict(context_hash=context_hash, context=context, title=title),
-            "question_record": dict(question=question, answer=answer, title=title, context_hash=context_hash)
+            "question_record": dict(question=question, answer=answer, title=title, context_hash=context_hash, id = record['id'])
         }
 
     def __iter__(self):
@@ -86,12 +109,22 @@ def get_mongo_db_client():
     assert client.admin.command("ping") == {'ok': 1.0}
     return client
 
+def get_chroma_db_client():
+    client = chromadb.HttpClient(
+        host="localhost",
+        port=int(CHROMA_DB_PORT))
+    return client
+
 def upload_data_to_mongo_db(dataset):
     mongo_db_client = get_mongo_db_client()
     
     database = mongo_db_client['chatbot_ui_v3']  
+
     context_collection = database['context']
+    context_collection.create_index([("context_hash", ASCENDING)], unique=True)
+
     qna_collection = database['qna']
+    qna_collection.create_index([("id", ASCENDING)], unique=True)
 
     iterator = SQuADIterator(dataset['train'])
     print('Done with records:')
@@ -99,16 +132,55 @@ def upload_data_to_mongo_db(dataset):
     counter = 0
     for batch in iterator.batch(batch_size=batch_size):
         context_records = [item['context_record'] for item in batch]
-        question_records = [item['question_record'] for item in batch]
+        context_records = [UpdateOne({'context_hash': i['context_hash']}, {'$set': i}, upsert=True) for i in context_records]
+        context_collection.bulk_write(context_records)
 
-        context_collection.insert_many(context_records)
-        qna_collection.insert_many(question_records)
+        question_records = [item['question_record'] for item in batch]
+        question_records = [UpdateOne({'id': i['id']}, {'$set': i}, upsert=True) for i in question_records]
+        qna_collection.bulk_write(question_records)
+        counter+=batch_size
+        if counter % (10*batch_size) == 0:
+            print(counter, end='\t')
+
+
+def prepare_context_data_for_vec_db(batch, embed_model):
+    documents = [i['context'] for i in batch]
+    ids = [i['context_hash'] for i in batch]
+    embeddings = embed_model._get_text_embeddings(documents)
+    metadatas = [dict(title = i['title'], context_hash = i['context_hash']) for i in batch]
+    return dict(documents=documents, embeddings=embeddings, metadatas=metadatas, ids=ids)
+
+def prepare_qna_data_for_vec_db(batch, embed_model):
+    documents = [i['question'] for i in batch]
+    ids = [i['context_hash'] for i in batch]
+    embeddings = embed_model._get_text_embeddings(documents)
+    metadatas = [dict(title = i['title'], context_hash = i['context_hash'],answer = i['answer']) for i in batch]
+    return dict(documents=documents, embeddings=embeddings, metadatas=metadatas, ids=ids)
+ 
+def upload_data_to_vec_db(dataset, embed_model):
+    vec_db_client = get_chroma_db_client()
+    
+    context_collection = vec_db_client.get_or_create_collection('context')
+    qna_collection = vec_db_client.get_or_create_collection('qna')
+
+    iterator = SQuADIterator(dataset['train'])
+    print('Done with records:')
+    batch_size = 128
+    counter = 0
+    for batch in iterator.batch(batch_size=batch_size):
+        context_records = [item['context_record'] for item in batch]
+        qna_records = [item['question_record'] for item in batch]
+
+        context_collection.add(**prepare_context_data_for_vec_db(context_records, embed_model))
+        qna_collection.add(**prepare_qna_data_for_vec_db(qna_records, embed_model))
+
         counter+=batch_size
         if counter % (10*batch_size) == 0:
             print(counter, end='\t')
 
 
 if __name__ == '__main__':
+    CHROMA_DB_PORT = 8010
     CACHE_DIR = os.path.join(Path(__file__).resolve().parents[1] , "local_only", "data")
     os.makedirs(CACHE_DIR, exist_ok=True)
 
@@ -117,3 +189,7 @@ if __name__ == '__main__':
     dataset = download_squad_dataset(dataset_name = DATASET_NAME, download_location = CACHE_DIR)
     create_dataset_summary(dataset, dataset_name = DATASET_NAME, download_location = CACHE_DIR)    
     upload_data_to_mongo_db(dataset)
+
+    EMBEDDING_SERVER_PORT = 8020
+    #embed_model = RemoteEmbedding(f"http://localhost:{EMBEDDING_SERVER_PORT}")
+    #upload_data_to_vec_db(dataset, embed_model)

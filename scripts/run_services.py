@@ -25,7 +25,7 @@ def get_chroma_db_commands():
 def get_embedding_server_commands():
     commands = [
     "uvicorn",
-    "utils.embeddings_server:app",
+    "scripts.embeddings_server:app",
     "--host", "127.0.0.1",
     "--port", f"{EMBEDDING_SERVER_PORT}"
     ]
