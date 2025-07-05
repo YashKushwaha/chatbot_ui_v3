@@ -1,9 +1,10 @@
 from llama_index.core.response_synthesizers.base import BaseSynthesizer
-from llama_index.core.schema import NodeWithScore, Response
+from llama_index.core.schema import NodeWithScore
+from llama_index.core.response import Response
 
 class CustomSynthesizer(BaseSynthesizer):
-    def __init__(self, llm):
-        self.llm = llm  # Can be any LLM client you use
+    def __init__(self, llm=None):
+        self.llm = llm  # Can be any LLM client
 
     def synthesize(self, query: str, nodes: list[NodeWithScore]) -> Response:
         # Combine node texts

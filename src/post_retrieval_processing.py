@@ -1,9 +1,9 @@
 from llama_index.core.postprocessor.types import BaseNodePostprocessor
 from llama_index.core.schema import NodeWithScore
-from llama_index.core.doc_store.base import BaseDocumentStore
+#from llama_index.core.doc_store.base import BaseDocumentStore
 from llama_index.core.schema import Document
 
-class MongoDocumentStore(BaseDocumentStore):
+class MongoDocumentStore:
     def __init__(self, mongo_collection):
         self.collection = mongo_collection
 
