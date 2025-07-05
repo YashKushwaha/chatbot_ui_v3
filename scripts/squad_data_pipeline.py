@@ -28,27 +28,6 @@ def get_batches_from_collection(collection, batch_size=100):
     if batch:
         yield batch  # Yield any remaining documents
 
-
-def batch_uploader(iterator, context_collection, question_collection, batch_size=100):
-    context_batch = []
-    question_batch = []
-
-    for split_record in iterator:
-        context_batch.append(split_record["context_record"])
-        question_batch.append(split_record["question_record"])
-
-        if len(context_batch) >= batch_size:
-            context_collection.insert_many(context_batch)
-            question_collection.insert_many(question_batch)
-            context_batch.clear()
-            question_batch.clear()
-
-    # Final flush
-    if context_batch:
-        context_collection.insert_many(context_batch)
-        question_collection.insert_many(question_batch)
-
-
 class SQuADIterator:
     def __init__(self, dataset_split):
         self.dataset_split = dataset_split
@@ -143,42 +122,48 @@ def upload_data_to_mongo_db(dataset):
             print(counter, end='\t')
 
 
-def prepare_context_data_for_vec_db(batch, embed_model):
-    documents = [i['context'] for i in batch]
-    ids = [i['context_hash'] for i in batch]
-    embeddings = embed_model._get_text_embeddings(documents)
-    metadatas = [dict(title = i['title'], context_hash = i['context_hash']) for i in batch]
-    return dict(documents=documents, embeddings=embeddings, metadatas=metadatas, ids=ids)
+def prepare_context_data_for_vec_db(collection, embed_model, batch_size=64):
+    for batch in get_batches_from_collection(collection, batch_size=batch_size):
+        documents = [i['context'] for i in batch]
+        ids = [i['context_hash'] for i in batch]
+        embeddings = embed_model._get_text_embeddings(documents)
+        metadatas = [dict(title = i['title'], context_hash = i['context_hash'],
+                          collection = collection.name, database = collection.database.name) for i in batch]
+        yield dict(documents=documents, embeddings=embeddings, metadatas=metadatas, ids=ids)
 
-def prepare_qna_data_for_vec_db(batch, embed_model):
-    documents = [i['question'] for i in batch]
-    ids = [i['context_hash'] for i in batch]
-    embeddings = embed_model._get_text_embeddings(documents)
-    metadatas = [dict(title = i['title'], context_hash = i['context_hash'],answer = i['answer']) for i in batch]
-    return dict(documents=documents, embeddings=embeddings, metadatas=metadatas, ids=ids)
+def prepare_qna_data_for_vec_db(collection, embed_model,batch_size=64):
+    for batch in get_batches_from_collection(collection, batch_size=batch_size):
+        documents = [i['question'] for i in batch]
+        ids = [i['id'] for i in batch]
+        embeddings = embed_model._get_text_embeddings(documents)
+        metadatas = [dict(title = i['title'], context_hash = i['context_hash'],answer = i['answer'],
+                          collection = collection.name, database = collection.database.name) for i in batch]
+        yield dict(documents=documents, embeddings=embeddings, metadatas=metadatas, ids=ids)
  
-def upload_data_to_vec_db(dataset, embed_model):
+def upload_data_to_vec_db(embed_model, context_data_mongo_db_collection, qna_data_mongo_db_collection):
     vec_db_client = get_chroma_db_client()
-    
+    batch_size =64
     context_collection = vec_db_client.get_or_create_collection('context')
     qna_collection = vec_db_client.get_or_create_collection('qna')
 
-    iterator = SQuADIterator(dataset['train'])
-    print('Done with records:')
-    batch_size = 128
-    counter = 0
-    for batch in iterator.batch(batch_size=batch_size):
-        context_records = [item['context_record'] for item in batch]
-        qna_records = [item['question_record'] for item in batch]
-
-        context_collection.add(**prepare_context_data_for_vec_db(context_records, embed_model))
-        qna_collection.add(**prepare_qna_data_for_vec_db(qna_records, embed_model))
-
+    print('Adding context data to vec db')
+    counter=0
+    for batch in prepare_context_data_for_vec_db(context_data_mongo_db_collection, embed_model, batch_size):
+        context_collection.add(**batch)
         counter+=batch_size
-        if counter % (10*batch_size) == 0:
+        if counter % 100*batch == 0:
+            print(counter, end='\t')
+ 
+    print()
+    print('Adding qna data to vec db')
+    counter=0    
+    for batch in prepare_qna_data_for_vec_db(qna_data_mongo_db_collection, embed_model, batch_size):
+        qna_collection.add(**batch) 
+        counter+=batch_size
+        if counter % 100*batch == 0:
             print(counter, end='\t')
 
-
+    print()
 if __name__ == '__main__':
     CHROMA_DB_PORT = 8010
     CACHE_DIR = os.path.join(Path(__file__).resolve().parents[1] , "local_only", "data")
@@ -187,9 +172,14 @@ if __name__ == '__main__':
     DATASET_NAME = "rajpurkar/squad_v2"
 
     dataset = download_squad_dataset(dataset_name = DATASET_NAME, download_location = CACHE_DIR)
-    create_dataset_summary(dataset, dataset_name = DATASET_NAME, download_location = CACHE_DIR)    
-    upload_data_to_mongo_db(dataset)
+    #create_dataset_summary(dataset, dataset_name = DATASET_NAME, download_location = CACHE_DIR)    
+    #upload_data_to_mongo_db(dataset)
 
     EMBEDDING_SERVER_PORT = 8020
-    #embed_model = RemoteEmbedding(f"http://localhost:{EMBEDDING_SERVER_PORT}")
-    #upload_data_to_vec_db(dataset, embed_model)
+    embed_model = RemoteEmbedding(f"http://localhost:{EMBEDDING_SERVER_PORT}")
+
+    mongo_db_client = get_mongo_db_client()
+    database = mongo_db_client['chatbot_ui_v3']  
+    context_collection = database['context']
+    qna_collection = database['qna']
+    upload_data_to_vec_db(embed_model, context_collection, qna_collection)

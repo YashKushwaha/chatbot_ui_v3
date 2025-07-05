@@ -16,6 +16,9 @@ class RemoteEmbedding(BaseEmbedding):
         response.raise_for_status()
         return response.json()["embedding"]
 
+    def get_query_embedding(self, query: str):
+        return self._get_query_embedding(query)
+    
     def _get_text_embedding(self, text: str):
         # Some methods in llama-index call this for general embeddings
         return self._get_query_embedding(text)
