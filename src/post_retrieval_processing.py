@@ -36,10 +36,12 @@ class MongoDocumentStore:
 
 
 class CustomPostProcessor(BaseNodePostprocessor):
+    doc_store: any
+    score_threshold: float = 0.5
+    top_k: int = 5
+
     def __init__(self, doc_store, score_threshold=0.5, top_k=5):
-        self.doc_store = doc_store
-        self.score_threshold = score_threshold
-        self.top_k = top_k
+        super().__init__(doc_store=doc_store, score_threshold=score_threshold, top_k=top_k)
 
     def _postprocess_nodes(self, nodes: list[NodeWithScore], query_str: str = None) -> list[NodeWithScore]:
         # 1. Filter by score threshold
