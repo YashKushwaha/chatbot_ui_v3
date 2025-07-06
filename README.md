@@ -15,9 +15,7 @@ llama index abstracts a lot of steps which leads to loss of transparency and con
 
 ### Data Pipeline
 
-- [Standford Quastion Answering Dataset / squad](https://rajpurkar.github.io/SQuAD-explorer/) dataset available on [HuggingFace](https://huggingface.co/datasets/rajpurkar/squad) used to build knowledge base
-- <details>
-<summary>Sample record</summary>
+- [Standford Quastion Answering Dataset / squad](https://rajpurkar.github.io/SQuAD-explorer/) dataset available on [HuggingFace](https://huggingface.co/datasets/rajpurkar/squad) used to build knowledge base. Sample record
 ```json
 {
   "id": "56be85543aeaaa14008c9063",
@@ -34,7 +32,6 @@ llama index abstracts a lot of steps which leads to loss of transparency and con
   }
 }
 ```
-</details>
 
 - Each record is broken into 2 records - QnA pair & context. Hash value of context is calculated to create an id for the text.
 - Records are stored in mongo db collections - `qna` & `context`. This ensures that records are de duplicated and acts as long term storage / document store
