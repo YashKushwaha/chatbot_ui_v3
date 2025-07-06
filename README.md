@@ -40,5 +40,8 @@ llama index abstracts a lot of steps which leads to loss of transparency and con
   - collection 2 represents synthetic questions that can be asked from a given piece of document. This method leverages query-to-question semantic alignment, using vector similarity to match user intent with pre-generated questions tied to source documents. 
   - To save space, instead of storing the original document in metadata of vector db, we store the details required to search the context in mongo db database
   
+TODO :
+- I tried to use Agent Runner class to build my custom agent but it turned out AgentRunner is an Orchestrator and not an agent by itself so I need to find other methods of building agents
+- Also since Agent runner has been [deprecated](https://github.com/run-llama/llama_index/blob/0327e9e1b041d602f3e8d41fcb60b95cda8f21fd/llama-index-core/llama_index/core/agent/runner/base.py) to need to look at what is the new class replacing it.
 
 
