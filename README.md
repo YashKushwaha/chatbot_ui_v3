@@ -38,7 +38,7 @@ llama index abstracts a lot of steps which leads to loss of transparency and con
 - Records are fetched from mongo db collections, embeddings are calculated and stored into `chromadb` collections
   - collection 1 represents chunks of original text (i.e. paragraphs from wikipedia articles)
   - collection 2 represents synthetic questions that can be asked from a given piece of document. This method leverages query-to-question semantic alignment, using vector similarity to match user intent with pre-generated questions tied to source documents. 
-  - To save space, instead of storing the original document in metadata we store the details required to search the context in mongo db database
+  - To save space, instead of storing the original document in metadata of vector db, we store the details required to search the context in mongo db database
   
 
 
